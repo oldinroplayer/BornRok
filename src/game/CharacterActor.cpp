@@ -886,6 +886,12 @@ bool CharacterActor::loadActor(const Vfs& vfs, const std::string& name, int clas
     const bool shareable = (name != "portal");
     for (const std::string& dir : dirs) {
         const std::string sprKey = dir + name, actKey = dir + actName;
+        // 이펙트/ effect sprites (fireball/waterball/particle/sight/soule/torch...) use MAGENTA as their
+        // transparent background, sometimes at a non-zero palette index that indexedToRgba leaves opaque
+        // -> a pink box under the additive effect (S.: "вижу магенту в фоне на спрайтовых эффектах").
+        // Flag effect-folder loads so frameTex keys magenta on their indexed frames too (char bodies,
+        // whose legit art may be pink, are NOT flagged and keep the index-0-only transparency).
+        effectFolderSprite_ = (dir == effD);
         if (shareable) {  // reuse an already-parsed copy if this exact asset path was loaded before
             auto si = s_sprCache.find(sprKey);
             auto ai = s_actCache.find(actKey);
@@ -1038,6 +1044,8 @@ Texture& CharacterActor::frameTex(int part, int idx, bool indexed) {
         if (static_cast<usize>(idx) < frames.size()) {
             const SprFrame& fr = frames[idx];
             std::vector<u8> rgba = indexed ? sp->indexedToRgba(idx) : fr.pixels;
+            if (indexed && effectFolderSprite_)
+                keyMagentaRgba(rgba);  // 이펙트/ effect .spr: magenta bg at a non-zero index -> transparent
             if (!indexed) {
                 keyMagentaRgba(rgba);  // truecolor peco/mount frames: 0xFF00FF -> transparent
                 // PNG-sprite (#109) / webp-synthesized frames may be flattened opaque RGB with a solid

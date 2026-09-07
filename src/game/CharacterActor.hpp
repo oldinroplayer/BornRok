@@ -247,6 +247,7 @@ private:
     bool frameInterp_ = false;  // smooth frame interpolation for this sprite (S., set per frame by caller)
     bool holdIdle_ = false;     // non-player companion (cart) holds idle frame 0 instead of looping (S.)
     bool isPlayer_ = false;  // composed PC body vs single mob/NPC (attack motion 2)
+    bool effectFolderSprite_ = false;  // loaded from 이펙트/: key out magenta bg even on indexed frames
     bool riding_ = false;    // body is a peco mount -> its walk plays 2x faster (S.)
     // An armed PC stands in the READYFIGHT pose and attacks with a weapon-specific
     // variant (ATTACK1/2/3 = motion 5/10/11), where the equipped-weapon sprite actually
