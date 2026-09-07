@@ -13912,11 +13912,12 @@ void GameScene::render(Application& app) {
                                 else if (auto it = actors_.find(fx.gid); it != actors_.end()) fpos = it->second.pos;
                             }
                             fpos.y += effectCastOverheadLift(fx.effect);  // raise overhead buff auras (S.)
-                            // upright=true: stand the skill cast effect VERTICALLY (world +Y up, facing the
-                            // camera) instead of the full camera billboard that tilts back with the camera
-                            // pitch and lays the effect flat under the caster. Ground effects keep flat mode.
+                            // Screen-projected billboard (upright=false -> R=pass.right, U=pass.up): the
+                            // effect faces the SCREEN PLANE so the viewer reads it clearly at any camera
+                            // tilt, e.g. Awakening/Concentration potion FX (S.: "спрайты эффектов должны
+                            // быть направлены на плоскость экрана, а не вертикально относительно чара").
                             e->render(pass, fpos, el, effectRenderScale(fx.effect), /*flat=*/false,
-                                      effectRenderIntensity(fx.effect), /*upright=*/true);
+                                      effectRenderIntensity(fx.effect), /*upright=*/false);
                         }
                     }
             }
