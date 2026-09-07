@@ -4069,11 +4069,21 @@ void GameScene::pumpStream(Application& app) {
                         // cell = the unexplained 0.5-1.5 twitch (confirmed in S.'s log). A small fixpos
                         // is just a mid-walk sync -> keep the glide + prediction so it stays smooth.
                         if (jump > 2) {
-                            playerPos_ = cellToWorld(sx, sy);
-                            playerMove_.active = false;
+                            // A real reposition (lag resync). Hard-snapping playerPos_ jerked the
+                            // follow-camera (S.: "при синхронизации точки положения происходит рывок").
+                            // Instead RUN the char to the authoritative cell at 2x walk speed so the
+                            // camera glides with it. Only a HUGE delta (a genuine same-map teleport)
+                            // still snaps — sprinting across the whole map would look worse.
                             haveWalkTarget_ = false;
                             awaitingMoveConfirm_ = false;
                             predActive_ = false;
+                            if (jump > 15) {
+                                playerPos_ = cellToWorld(sx, sy);
+                                playerMove_.active = false;
+                            } else {
+                                startMove(playerMove_, playerPos_, vcx, vcy, sx, sy, /*route=*/true,
+                                          static_cast<u16>(playerSpeed_ > 2 ? playerSpeed_ / 2 : 1));
+                            }
                         }
                     } else if (auto it = actors_.find(id); it != actors_.end()) {
                         it->second.pos = cellToWorld(sx, sy);
