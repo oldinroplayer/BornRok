@@ -4063,12 +4063,12 @@ void GameScene::pumpStream(Application& app) {
                         srvConfirmX_ = sx;
                         srvConfirmY_ = sy;
                         haveSrvConfirm_ = true;
-                        // Only TELEPORT + drop the glide on a REAL reposition (big delta = knockback /
-                        // teleport). This server fixpos'es us after every walk hop, and our prediction
-                        // runs ~1 cell ahead, so hard-snapping each small one yanked the char back ~1
-                        // cell = the unexplained 0.5-1.5 twitch (confirmed in S.'s log). A small fixpos
-                        // is just a mid-walk sync -> keep the glide + prediction so it stays smooth.
-                        if (jump > 2) {
+                        // A fixpos of 3 cells or LESS gets NO visual correction (S. 2026-09-08: "если 3
+                        // клетки или меньше, коррекция не нужна, пусть стоит не правильно — следующий клик
+                        // всё откорректирует"). We keep the auth/srvConfirm update above so the NEXT click
+                        // routes from the authoritative cell, but leave playerPos_ where it is — no snap, no
+                        // catch-up run, no twitch. Only a bigger delta (a real lag resync) is corrected.
+                        if (jump > 3) {
                             // A real reposition (lag resync). Hard-snapping playerPos_ jerked the
                             // follow-camera (S.: "при синхронизации точки положения происходит рывок").
                             // Instead RUN the char to the authoritative cell at 2x walk speed so the
