@@ -4,6 +4,7 @@
 #include <functional>
 #include <array>
 #include <cmath>
+#include <cstdlib>  // std::atof (pngsprite_scale.cfg)
 #include <optional>
 #include <string>
 #include <tuple>
@@ -57,10 +58,20 @@ std::shared_ptr<Sprite> loadSprOrPngd(const Vfs& vfs, const std::string& base) {
     }
     while (!frames.empty() && frames.back().pixels.empty()) frames.pop_back();  // drop trailing miss padding
     if (frames.empty()) return nullptr;
-    // The content pack is "2k" — every frame is 2× the original .spr size (S.: "масштаб спрайтов 2к
-    // уменьшить в 2 раза"). Render at 1/kPngdScale logical size so it matches the (1×) .act offsets;
-    // the full-res WebP still uploads as the texture, so it stays crisp.
-    return std::make_shared<Sprite>(Sprite::fromRgbaFrames(std::move(frames), 1.0f / kPngdScale));
+    // The WebP pack is authored at K× the original .spr size (2k -> K=2, 4k -> K=4). The client can't
+    // infer K without the absent .spr, so the PACK declares it in data/pngsprite_scale.cfg (a single
+    // number; default kPngdScale=2). Render at 1/K logical size so it matches the (1×) .act offsets
+    // while the full-res WebP still uploads as the texture (stays crisp). Read once, cached. (S.:
+    // "масштаб 2к уменьшить в 2 раза" + "сделай также для 4к".)
+    static float s_scale = 0.0f;
+    if (s_scale == 0.0f) {
+        s_scale = kPngdScale;
+        if (auto b = vfs.readQuiet("data/pngsprite_scale.cfg"); b && !b->empty()) {
+            const float v = std::atof(std::string(b->begin(), b->end()).c_str());
+            if (v >= 1.0f && v <= 8.0f) s_scale = v;
+        }
+    }
+    return std::make_shared<Sprite>(Sprite::fromRgbaFrames(std::move(frames), 1.0f / s_scale));
 }
 std::unordered_map<std::string, std::shared_ptr<Sprite>> s_sprCache;
 std::unordered_map<std::string, std::shared_ptr<Action>> s_actCache;
