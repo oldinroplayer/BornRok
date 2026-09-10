@@ -29,6 +29,9 @@ std::shared_ptr<T> mk(std::optional<T>&& o) {
     return o ? std::make_shared<T>(std::move(*o)) : nullptr;
 }
 
+// The .spr-less WebP content pack is authored at "2k" — 2× the original .spr frame size (S.).
+constexpr float kPngdScale = 2.0f;
+
 // Load the Sprite for `base`: the classic <base>.spr, OR — when the content pack ships only HD frames
 // (S. 2026-09-10 converted every .spr to WebP, keeping the .act) — synthesize a truecolor Sprite from
 // the <base>.png.d/<i>.webp frames so the .act still animates. Frame i maps to the .spr's frame index
@@ -54,7 +57,10 @@ std::shared_ptr<Sprite> loadSprOrPngd(const Vfs& vfs, const std::string& base) {
     }
     while (!frames.empty() && frames.back().pixels.empty()) frames.pop_back();  // drop trailing miss padding
     if (frames.empty()) return nullptr;
-    return std::make_shared<Sprite>(Sprite::fromRgbaFrames(std::move(frames)));
+    // The content pack is "2k" — every frame is 2× the original .spr size (S.: "масштаб спрайтов 2к
+    // уменьшить в 2 раза"). Render at 1/kPngdScale logical size so it matches the (1×) .act offsets;
+    // the full-res WebP still uploads as the texture, so it stays crisp.
+    return std::make_shared<Sprite>(Sprite::fromRgbaFrames(std::move(frames), 1.0f / kPngdScale));
 }
 std::unordered_map<std::string, std::shared_ptr<Sprite>> s_sprCache;
 std::unordered_map<std::string, std::shared_ptr<Action>> s_actCache;

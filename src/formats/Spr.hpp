@@ -30,14 +30,19 @@ public:
 
     // Build an in-memory truecolor sprite (no .spr file behind it) — used by the PNG-sprite
     // loader (#109), which decodes loose PNG frames and feeds them into the same pipeline.
-    static Sprite fromRgbaFrames(std::vector<SprFrame> frames) {
+    // renderScale < 1 shrinks the composed QUAD without touching the texture: an HD (e.g. 2k) pack
+    // whose frames are K× the original .spr size passes 1/K so it renders at the original logical
+    // size while the .act's (1×) layer offsets/anchors stay correct (S. 2026-09-10: "масштаб 2к / 2").
+    static Sprite fromRgbaFrames(std::vector<SprFrame> frames, float renderScale = 1.0f) {
         Sprite s;
         s.version_ = 0x300;  // synthetic marker (real .spr versions stop at 0x2xx)
         s.rgba_ = std::move(frames);
+        s.renderScale_ = renderScale;
         return s;
     }
 
     u16 version() const { return version_; }
+    float renderScale() const { return renderScale_; }
     const std::vector<SprFrame>& indexedFrames() const { return indexed_; }
     const std::vector<SprFrame>& rgbaFrames() const { return rgba_; }
     bool hasPalette() const { return hasPalette_; }
@@ -83,6 +88,7 @@ private:
     std::vector<SprFrame> rgba_;
     std::array<SprPalColor, 256> palette_{};
     bool hasPalette_ = false;
+    float renderScale_ = 1.0f;  // composed-quad size multiplier (HD packs render at 1/K logical size)
 };
 
 } // namespace uaro

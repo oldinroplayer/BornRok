@@ -63,8 +63,11 @@ void composeFrame(const Action& act, const Sprite& spr, int action, int frame, f
                 lb = it * lb + t * static_cast<float>(N.b);
             }
         }
-        const float w = src.width * std::fabs(scx);
-        const float h = src.height * std::fabs(scy);
+        // renderScale shrinks the QUAD only (an HD/2k synthetic pack has K× frame pixels; 1/K here
+        // renders it at the original logical size while the HD texture stays crisp). 1.0 for real .spr.
+        const float ps = spr.renderScale();
+        const float w = src.width * std::fabs(scx) * ps;
+        const float h = src.height * std::fabs(scy) * ps;
 
         ComposedQuad q;
         q.part = part;
