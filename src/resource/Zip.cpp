@@ -52,6 +52,28 @@ u64 rd64(const u8* p) {
     return static_cast<u64>(rd32(p)) | (static_cast<u64>(rd32(p + 4)) << 32);
 }
 
+// True only for a string that contains at least one multi-byte sequence AND is entirely valid UTF-8.
+// Used to recognise UTF-8 entry names in zips that forgot to set the general-purpose UTF-8 flag (bit
+// 11) — some repackers store Korean names as UTF-8 bytes without flagging them (S. sprite.zip).
+bool isValidUtf8(const std::string& s) {
+    bool sawMultibyte = false;
+    for (usize i = 0; i < s.size();) {
+        const u8 c = static_cast<u8>(s[i]);
+        if (c < 0x80) { ++i; continue; }
+        int n;
+        if ((c & 0xE0) == 0xC0) n = 1;
+        else if ((c & 0xF0) == 0xE0) n = 2;
+        else if ((c & 0xF8) == 0xF0) n = 3;
+        else return false;
+        if (i + n >= s.size()) return false;
+        for (int k = 1; k <= n; ++k)
+            if ((static_cast<u8>(s[i + k]) & 0xC0) != 0x80) return false;
+        sawMultibyte = true;
+        i += n + 1;
+    }
+    return sawMultibyte;
+}
+
 constexpr u32 kSigLocal = 0x04034b50;      // "PK\3\4" local file header
 constexpr u32 kSigCentral = 0x02014b50;    // "PK\1\2" central directory file header
 constexpr u32 kSigEOCD = 0x06054b50;       // "PK\5\6" end of central directory
@@ -186,8 +208,15 @@ bool ZipArchive::parseCentralDirectory() {
             log::error("ZIP: truncated entry in central directory of {}", path_);
             return false;
         }
-        std::string name(reinterpret_cast<const char*>(&cd[pos + 46]), nameLen);
-        if (flag & 0x0800) name = utf8ToCp949(name);  // UTF-8 entry -> cp949 so it matches asset requests
+        const std::string rawName(reinterpret_cast<const char*>(&cd[pos + 46]), nameLen);
+        std::string name = rawName;
+        // A zip that flags UTF-8 (bit 11) needs its names converted to cp949 to match the client's
+        // cp949 asset requests. Some repacks store UTF-8 names WITHOUT the flag, though — recognise a
+        // valid non-ASCII UTF-8 name and convert it too, so Korean sprite paths keep matching (S.
+        // 2026-09-10: "спрайты вчера были, сегодня перестали" — a re-packed sprite.zip lost the flag).
+        const bool utf8Flagged = (flag & 0x0800) != 0;
+        const bool utf8Unflagged = !utf8Flagged && isValidUtf8(rawName);
+        if (utf8Flagged || utf8Unflagged) name = utf8ToCp949(rawName);
 
         // Zip64 extended-information extra field (header id 0x0001): the true 64-bit values,
         // present in order only for those 32-bit fields that held the 0xFFFFFFFF sentinel.
@@ -209,13 +238,25 @@ bool ZipArchive::parseCentralDirectory() {
 
         ZipEntry ent;
         // lowercase + '/'; matches GRF vpaths. Re-root data-subdir zips under data/ (see helper).
-        ent.name = rerootUnderData(GrfArchive::normalize(std::move(name)));
+        ent.name = rerootUnderData(GrfArchive::normalize(name));
         ent.method = method;
         ent.compressed = compressed;
         ent.uncompressed = uncompressed;
         ent.localHeaderOffset = localOffset;
-        if (ent.isFile())  // skip directory entries
+        if (ent.isFile()) {  // skip directory entries
+            // When we converted an UNFLAGGED name on a UTF-8 guess, also register the RAW name as an
+            // alias (emplace = never clobber a real entry): if the guess was wrong and the bytes were
+            // already cp949, the raw name is the one asset requests use. Non-destructive either way.
+            if (utf8Unflagged) {
+                const std::string rawKey = rerootUnderData(GrfArchive::normalize(rawName));
+                if (rawKey != ent.name) {
+                    ZipEntry alias = ent;
+                    alias.name = rawKey;
+                    entries_.emplace(std::move(rawKey), std::move(alias));
+                }
+            }
             entries_[ent.name] = std::move(ent);
+        }
     }
     return true;
 }
