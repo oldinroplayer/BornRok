@@ -901,10 +901,20 @@ if(MSVC AND NOT CLIENT_XBOX)
     # (possibly x86) path and this x64-only logic would NOT re-run. Clear it every configure so the path is
     # always freshly resolved from the globs below.
     unset(MAKEAPPX_EXE CACHE)
-    # NB: NAMES_PER_DIR keeps HINTS priority (newest-SDK x64) ahead of the ENV fallbacks, which could
-    # otherwise point at an x86 bin.
-    find_program(MAKEAPPX_EXE NAMES makeappx NAMES_PER_DIR
-                 HINTS ${_makeappx_dirs} ENV WindowsSdkVerBinPath ENV WindowsSdkBinPath)
+    # Resolve the x64 SDK bins FIRST (globs above), with NO ENV fallback — a "Developer Command Prompt"
+    # sets WindowsSdkVerBinPath to the *x86* bin, and find_program would happily take that 32-bit tool,
+    # which then OOMs (0x8007000E) on the multi-GB bundled content (S. 2026-09-10, recurring).
+    find_program(MAKEAPPX_EXE NAMES makeappx NAMES_PER_DIR HINTS ${_makeappx_dirs})
+    # Only if the x64 globs found nothing, fall back to the dev-prompt ENV paths (last resort).
+    if(NOT MAKEAPPX_EXE)
+      find_program(MAKEAPPX_EXE NAMES makeappx ENV WindowsSdkVerBinPath ENV WindowsSdkBinPath)
+    endif()
+    # Hard-reject a 32-bit makeappx no matter how it was resolved: it CANNOT pack multi-GB content.
+    if(MAKEAPPX_EXE MATCHES "[/\\]x86[/\\]")
+      message(WARNING "CLIENT_WIN_MSIX: ignoring 32-bit makeappx '${MAKEAPPX_EXE}' — it OOMs (0x8007000E) "
+                      "on the multi-GB bundled content. Install the x64 Windows SDK build tools.")
+      unset(MAKEAPPX_EXE CACHE)
+    endif()
     set(_msix_layout "${CMAKE_BINARY_DIR}/msix-layout")
     set(_msix_out "${CMAKE_BINARY_DIR}/BornRok.msix")
     # The exe embeds fonts/texts/shaders/clientinfo, so the layout only needs the exe + logos + the
