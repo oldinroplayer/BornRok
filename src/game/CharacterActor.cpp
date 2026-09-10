@@ -65,10 +65,6 @@ std::shared_ptr<Sprite> loadSprOrPngd(const Vfs& vfs, const std::string& base) {
     return std::make_shared<Sprite>(
         Sprite::fromRgbaFrames(std::move(frames), 1.0f / std::max(1.0f, g_contentSpriteScale)));
 }
-
-void CharacterActor::setContentSpriteScale(const std::string& q) {
-    g_contentSpriteScale = (q == "4k") ? 4.0f : (q == "2k") ? 2.0f : 1.0f;  // default/"1k"/"" -> 1k
-}
 std::unordered_map<std::string, std::shared_ptr<Sprite>> s_sprCache;
 std::unordered_map<std::string, std::shared_ptr<Action>> s_actCache;
 // Player whole-appearance cache: appearanceKey_ -> {armed?, idleMotion} render state; the parts live
@@ -479,6 +475,12 @@ void keyMagentaRgba(std::vector<u8>& px) {
     }
 }
 } // namespace
+
+void CharacterActor::setContentSpriteScale(const std::string& q) {
+    // "1k"/"" -> 1 (no downscale), "2k" -> 2, "4k" -> 4. Writes the anon-namespace g_contentSpriteScale
+    // above (same TU); loadSprOrPngd renders synthetic WebP sprites at 1/K to hit the 1k base.
+    g_contentSpriteScale = (q == "4k") ? 4.0f : (q == "2k") ? 2.0f : 1.0f;
+}
 
 std::vector<std::string> CharacterActor::playerPartPaths() {
     std::vector<std::string> out;
