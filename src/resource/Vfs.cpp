@@ -69,6 +69,24 @@ bool Vfs::mountZip(const std::string& path, ContentSource tag) {
     // opens but parses 0 entries = its central directory didn't read (e.g. a big/partial pack) -> every
     // asset lookup into it misses. This log tells at a glance whether e.g. texture.zip actually has entries.
     log::info("Vfs: mounted zip '{}' ({} entries)", path, zip->entries().size());
+    // One-shot DIAG (S. 2026-09-10: a Windows-packed sprite.zip shows no sprites even after the
+    // UTF-8-flag fix). Dump a few of this pack's KEYS + count how the char-body folder is stored, so
+    // we can see the real path layout / encoding. cp949 marker = converted OK; utf8 marker = names
+    // still UTF-8 (conversion didn't fire); neither = different structure/prefix.
+    if (path.find("sprite.zip") != std::string::npos) {
+        const std::string cp949Body = "\xc0\xce\xb0\xa3\xc1\xb7/\xb8\xf6\xc5\xeb";  // 인간족/몸통 (cp949)
+        const std::string utf8Body =
+            "\xec\x9d\xb8\xea\xb0\x84\xec\xa1\xb1/\xeb\xaa\xb8\xed\x86\xb5";  // 인간족/몸통 (UTF-8)
+        int shown = 0, cp = 0, u8 = 0;
+        std::string bodyExample;
+        for (const auto& [k, v] : zip->entries()) {
+            if (shown < 10) { log::info("  sprite.zip key[{}]='{}'", shown, k); ++shown; }
+            if (k.find(cp949Body) != std::string::npos) { ++cp; if (bodyExample.empty()) bodyExample = k; }
+            if (k.find(utf8Body) != std::string::npos) ++u8;
+        }
+        log::info("  sprite.zip DIAG: cp949-body-keys={} utf8-body-keys={} example='{}'", cp, u8,
+                  bodyExample);
+    }
     zips_.push_back({std::move(zip), tag});
     return true;
 }
