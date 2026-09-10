@@ -409,10 +409,22 @@ void Application::loadConfig() {
     std::string cfgText;
     if (consoleServices().saveRead("settings/game.cfg", cfgBlob))
         cfgText.assign(cfgBlob.begin(), cfgBlob.end());
-    std::istringstream in(cfgText);
 #else
-    std::ifstream in(gameCfgPath());
+    std::string cfgText;
+    if (std::ifstream f(gameCfgPath()); f) {
+        std::stringstream ss;
+        ss << f.rdbuf();
+        cfgText = ss.str();
+    }
 #endif
+    // Fresh install with no user settings/game.cfg -> fall back to a game.cfg BUNDLED in the content
+    // pack (S. 2026-09-10: "проверять в папке контента, если нет в settings; game.cfg упаковывать в
+    // пакеты при сборках"). Read it through the VFS so it works whether it ships inside a pack zip or
+    // as a loose content/data/ file. A later user saveConfig writes settings/game.cfg, which then wins.
+    if (cfgText.empty())
+        if (auto blob = vfs_.readQuiet("data/game.cfg"); blob && !blob->empty())
+            cfgText.assign(blob->begin(), blob->end());
+    std::istringstream in(cfgText);
     if (in) {
         std::string key;
         while (in >> key) {
