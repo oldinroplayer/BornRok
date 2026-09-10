@@ -28,6 +28,34 @@ template <class T>
 std::shared_ptr<T> mk(std::optional<T>&& o) {
     return o ? std::make_shared<T>(std::move(*o)) : nullptr;
 }
+
+// Load the Sprite for `base`: the classic <base>.spr, OR — when the content pack ships only HD frames
+// (S. 2026-09-10 converted every .spr to WebP, keeping the .act) — synthesize a truecolor Sprite from
+// the <base>.png.d/<i>.webp frames so the .act still animates. Frame i maps to the .spr's frame index
+// i (contiguous), so SpriteComposer's rgba fallback resolves each .act layer's sprIndex. Returns null
+// if neither a .spr nor any .png.d frame exists.
+std::shared_ptr<Sprite> loadSprOrPngd(const Vfs& vfs, const std::string& base) {
+    if (auto bs = vfs.readQuiet(base + ".spr")) return mk(Sprite::parse(*bs));
+    const std::string dir = base + ".png.d/";
+    std::vector<SprFrame> frames;
+    int misses = 0;
+    for (int i = 0; misses < 16 && i < 20000; ++i) {
+        auto bytes = vfs.readQuiet(dir + std::to_string(i) + ".webp");
+        if (!bytes) bytes = vfs.readQuiet(dir + std::to_string(i) + ".png");
+        if (!bytes) { frames.emplace_back(); ++misses; continue; }  // gap -> empty frame keeps i aligned
+        misses = 0;
+        SprFrame fr;
+        if (auto img = decodeImage(*bytes); img && img->valid()) {
+            fr.width = static_cast<u16>(img->width);
+            fr.height = static_cast<u16>(img->height);
+            fr.pixels = std::move(img->rgba);
+        }
+        frames.push_back(std::move(fr));
+    }
+    while (!frames.empty() && frames.back().pixels.empty()) frames.pop_back();  // drop trailing miss padding
+    if (frames.empty()) return nullptr;
+    return std::make_shared<Sprite>(Sprite::fromRgbaFrames(std::move(frames)));
+}
 std::unordered_map<std::string, std::shared_ptr<Sprite>> s_sprCache;
 std::unordered_map<std::string, std::shared_ptr<Action>> s_actCache;
 // Player whole-appearance cache: appearanceKey_ -> {armed?, idleMotion} render state; the parts live
@@ -482,10 +510,10 @@ bool CharacterActor::loadHeadgear(const Vfs& vfs, int part, u16 viewId, const st
     if (!nm) return false;
     const std::string acc = "\xbe\xc7\xbc\xbc\xbb\xe7\xb8\xae";  // 악세사리 (accessory)
     const std::string base = "data/sprite/" + acc + "/" + sx + "/" + sx + nm;
-    auto s = vfs.read(base + ".spr");
+    auto accSpr = loadSprOrPngd(vfs, base);  // .spr, or synth from .png.d WebP frames (S.)
     auto a = vfs.read(base + ".act");
-    if (s && a) {
-        spr_[part] = mk(Sprite::parse(*s));
+    if (accSpr && a) {
+        spr_[part] = std::move(accSpr);
         act_[part] = mk(Action::parse(*a));
         if (spr_[part] && act_[part]) {
             // Every character part attaches to the body's neck anchor via offset = body.anchor -
@@ -569,10 +597,10 @@ bool CharacterActor::load(const Vfs& vfs, u16 classId, u8 sex, u16 hair, u16 hea
     const u16 h = (rawHair < 13) ? kHairIdx[hairRow][rawHair] : rawHair;  // remapped sprite/palette number
     const std::string bodyBase = base + kBody + "/" + sx + "/" + job + "_" + sx;
 
-    auto bs = vfs.read(bodyBase + ".spr");
+    auto bodySpr = loadSprOrPngd(vfs, bodyBase);  // .spr, or synth from .png.d WebP frames (S.)
     auto ba = vfs.read(bodyBase + ".act");
-    if (bs && ba) {
-        spr_[0] = mk(Sprite::parse(*bs));
+    if (bodySpr && ba) {
+        spr_[0] = std::move(bodySpr);
         act_[0] = mk(Action::parse(*ba));
         // Clothes dye (#86): override the body palette with data/palette/몸/<job>_<sex>_<color>.pal
         // (roBrowser DBManager.getBodyPalPath). Colour 0 = default. Riding shares the body sprite, so
@@ -595,10 +623,10 @@ bool CharacterActor::load(const Vfs& vfs, u16 classId, u8 sex, u16 hair, u16 hea
     // Head: try the requested hairstyle, falling back to style 1 if it is absent.
     for (u16 hh : {h, static_cast<u16>(1)}) {
         const std::string hb = base + kHead + "/" + sx + "/" + std::to_string(hh) + "_" + sx;
-        auto hs = vfs.read(hb + ".spr");
+        auto headSpr = loadSprOrPngd(vfs, hb);  // .spr, or synth from .png.d WebP frames (S.)
         auto ha = vfs.read(hb + ".act");
-        if (hs && ha) {
-            spr_[1] = mk(Sprite::parse(*hs));
+        if (headSpr && ha) {
+            spr_[1] = std::move(headSpr);
             act_[1] = mk(Action::parse(*ha));
             if (spr_[1] && act_[1]) {
                 // Hair dye (#86): override the head sprite's palette with the per-colour .pal
@@ -664,29 +692,31 @@ bool CharacterActor::load(const Vfs& vfs, u16 classId, u8 sex, u16 hair, u16 hea
         wpres.push_back(base + wjob + "/" + wjob + "_" + sx + "_");
         if (std::string wbase = weaponBaseJob(classId); !wbase.empty())  // transcended -> base job's folder
             wpres.push_back(base + wbase + "/" + wbase + "_" + sx + "_");
-        std::optional<std::vector<u8>> ws, wa;
+        std::shared_ptr<Sprite> wSpr;
+        std::optional<std::vector<u8>> wa;
         std::string wb;
         for (const std::string& wpre : wpres) {
             for (const std::string& suf : sufs) {
                 wb = wpre + suf;
-                ws = vfs.read(wb + ".spr");
                 wa = vfs.read(wb + ".act");
-                if (!(ws && wa)) continue;
+                if (!wa) continue;
                 // Reject a weapon sprite that ships ONLY the ~5 basic poses (idle/walk/sit/pickup/ready,
                 // 40 actions) and NO attack motion -- some GRF 2H arts are like this (e.g. 양손창, verified
                 // wpnActs=40 in S.'s log), so the swing drew nothing. Fall through to the next candidate:
                 // the 1H fallback name (창) carries the full 104-action set with the attack frames.
                 // (S.: копьё Lance/Javelin не рисуется при атаке.)
                 if (auto chk = mk(Action::parse(*wa)); chk && chk->actions().size() <= 40) {
-                    ws.reset(); wa.reset();
+                    wa.reset();
                     continue;
                 }
+                wSpr = loadSprOrPngd(vfs, wb);  // .spr, or synth from .png.d WebP frames (S.)
+                if (!wSpr) { wa.reset(); continue; }
                 break;
             }
-            if (ws && wa) break;
+            if (wSpr && wa) break;
         }
-        if (ws && wa) {
-            spr_[5] = mk(Sprite::parse(*ws));
+        if (wSpr && wa) {
+            spr_[5] = std::move(wSpr);
             act_[5] = mk(Action::parse(*wa));
             if (!(spr_[5] && act_[5])) {
                 spr_[5].reset();
@@ -701,10 +731,10 @@ bool CharacterActor::load(const Vfs& vfs, u16 classId, u8 sex, u16 hair, u16 hea
                 {
                     static const char* kTrailSuffix = "_\xb0\xcb\xb1\xa4";  // _검광 (cp949)
                     const std::string tb = wb + kTrailSuffix;
-                    auto ts = vfs.read(tb + ".spr");
+                    auto trailSpr = loadSprOrPngd(vfs, tb);  // .spr, or synth from .png.d WebP (S.)
                     auto ta = vfs.read(tb + ".act");
-                    if (ts && ta) {
-                        spr_[7] = mk(Sprite::parse(*ts));
+                    if (trailSpr && ta) {
+                        spr_[7] = std::move(trailSpr);
                         act_[7] = mk(Action::parse(*ta));
                         if (!(spr_[7] && act_[7])) { spr_[7].reset(); act_[7].reset(); }
                         else loadPngOverrides(vfs, 7, tb);
@@ -785,16 +815,19 @@ bool CharacterActor::load(const Vfs& vfs, u16 classId, u8 sex, u16 hair, u16 hea
             std::vector<std::string> sjobs;
             sjobs.push_back(jobSpriteName(classId));
             if (std::string sbase = weaponBaseJob(classId); !sbase.empty()) sjobs.push_back(sbase);
-            std::optional<std::vector<u8>> ss, sa;
+            std::shared_ptr<Sprite> shSpr;
+            std::optional<std::vector<u8>> sa;
             std::string shbase;
             for (const std::string& sjob : sjobs) {
                 shbase = "data/sprite/" + kShield + "/" + sjob + "/" + sjob + "_" + sx + "_" + sname;
-                ss = vfs.read(shbase + ".spr");
                 sa = vfs.read(shbase + ".act");
-                if (ss && sa) break;
+                if (!sa) continue;
+                shSpr = loadSprOrPngd(vfs, shbase);  // .spr, or synth from .png.d WebP frames (S.)
+                if (shSpr) break;
+                sa.reset();
             }
-            if (ss && sa) {
-                spr_[6] = mk(Sprite::parse(*ss));
+            if (shSpr && sa) {
+                spr_[6] = std::move(shSpr);
                 act_[6] = mk(Action::parse(*sa));
                 if (!(spr_[6] && act_[6])) {
                     spr_[6].reset();
@@ -902,10 +935,10 @@ bool CharacterActor::loadActor(const Vfs& vfs, const std::string& name, int clas
                 return true;
             }
         }
-        auto s = vfs.read(dir + name + ".spr");
+        auto aSpr = loadSprOrPngd(vfs, dir + name);  // .spr, or synth from .png.d WebP frames (S.)
         auto a = vfs.read(dir + actName + ".act");
-        if (s && a) {
-            spr_[0] = mk(Sprite::parse(*s));
+        if (aSpr && a) {
+            spr_[0] = std::move(aSpr);
             // The warp portal (npc/portal) stores its truecolor frames as ARGB, not the usual
             // ABGR, so the standard decode renders the blue ripple RED (S.; proven by rendering the
             // frames both ways). Swap R/B for it only -- the brazier flame (torch_01) IS ABGR and

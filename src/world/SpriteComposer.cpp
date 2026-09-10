@@ -35,7 +35,11 @@ void composeFrame(const Action& act, const Sprite& spr, int action, int frame, f
     for (usize li = 0; li < f->layers.size(); ++li) {
         const ActLayer& L = f->layers[li];
         if (L.sprIndex < 0) continue;
-        const auto& frames = (L.sprType == 1) ? spr.rgbaFrames() : spr.indexedFrames();
+        // A synthetic WebP sprite (S. converted the pack to WebP: no .spr, frames live in .png.d and
+        // are loaded as truecolor) carries ONLY rgba frames — use them even when the .act layer says
+        // indexed (its sprType targets the original .spr's indexed frames, which don't exist here).
+        const bool useRgba = (L.sprType == 1) || spr.indexedFrames().empty();
+        const auto& frames = useRgba ? spr.rgbaFrames() : spr.indexedFrames();
         if (static_cast<usize>(L.sprIndex) >= frames.size()) continue;
         const SprFrame& src = frames[L.sprIndex];
         if (src.width == 0 || src.height == 0) continue;
@@ -65,7 +69,7 @@ void composeFrame(const Action& act, const Sprite& spr, int action, int frame, f
         ComposedQuad q;
         q.part = part;
         q.sprIndex = L.sprIndex;
-        q.indexed = (L.sprType != 1);
+        q.indexed = !useRgba;
         q.w = w;
         q.h = h;
         // RO layer (x,y) is the sprite centre relative to the actor anchor.
