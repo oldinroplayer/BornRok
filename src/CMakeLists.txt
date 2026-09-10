@@ -870,8 +870,11 @@ if(MSVC AND NOT CLIENT_XBOX)
       set(_default_msix_identity "PechSoft.BornRok-ARM")
       set(_default_msix_display  "BornRok-ARM")
     else()
-      set(_default_msix_identity "PechSoft.UaRO")  # x64 desktop Store name TBD -> override when reserved
-      set(_default_msix_display  "BornRok")
+      # x64 desktop Store product reserved by S. in Partner Center as "PechSoft.BornRok-HD"
+      # (family PechSoft.BornRok-HD_nq0prcg8y9840); the manifest Identity Name + Properties/DisplayName
+      # MUST match it exactly or the upload is rejected ("Недопустимое имя идентификатора пакета").
+      set(_default_msix_identity "PechSoft.BornRok-HD")
+      set(_default_msix_display  "BornRok-HD")
     endif()
     set(CLIENT_MSIX_IDENTITY_NAME "${_default_msix_identity}" CACHE STRING
         "MSIX Package/Identity Name (must match the Partner Center reservation for this product)")
