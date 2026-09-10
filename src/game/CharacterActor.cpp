@@ -4,7 +4,6 @@
 #include <functional>
 #include <array>
 #include <cmath>
-#include <cstdlib>  // std::atof (pngsprite_scale.cfg)
 #include <optional>
 #include <string>
 #include <tuple>
@@ -31,7 +30,10 @@ std::shared_ptr<T> mk(std::optional<T>&& o) {
 }
 
 // The .spr-less WebP content pack is authored at "2k" — 2× the original .spr frame size (S.).
-constexpr float kPngdScale = 2.0f;
+// Content sprite scale K: the loaded WebP pack's authoring resolution vs the 1k render base (1k->1,
+// 2k->2, 4k->4). Driven by the GLOBAL config (ESC "Quality content" / game.cfg `sprquality`) via
+// CharacterActor::setContentSpriteScale; default 1.0 = 1k (S.: "по дефолту спрайты 1к").
+float g_contentSpriteScale = 1.0f;
 
 // Load the Sprite for `base`: the classic <base>.spr, OR — when the content pack ships only HD frames
 // (S. 2026-09-10 converted every .spr to WebP, keeping the .act) — synthesize a truecolor Sprite from
@@ -58,20 +60,14 @@ std::shared_ptr<Sprite> loadSprOrPngd(const Vfs& vfs, const std::string& base) {
     }
     while (!frames.empty() && frames.back().pixels.empty()) frames.pop_back();  // drop trailing miss padding
     if (frames.empty()) return nullptr;
-    // The WebP pack is authored at K× the original .spr size (2k -> K=2, 4k -> K=4). The client can't
-    // infer K without the absent .spr, so the PACK declares it in data/pngsprite_scale.cfg (a single
-    // number; default kPngdScale=2). Render at 1/K logical size so it matches the (1×) .act offsets
-    // while the full-res WebP still uploads as the texture (stays crisp). Read once, cached. (S.:
-    // "масштаб 2к уменьшить в 2 раза" + "сделай также для 4к".)
-    static float s_scale = 0.0f;
-    if (s_scale == 0.0f) {
-        s_scale = kPngdScale;
-        if (auto b = vfs.readQuiet("data/pngsprite_scale.cfg"); b && !b->empty()) {
-            const float v = std::atof(std::string(b->begin(), b->end()).c_str());
-            if (v >= 1.0f && v <= 8.0f) s_scale = v;
-        }
-    }
-    return std::make_shared<Sprite>(Sprite::fromRgbaFrames(std::move(frames), 1.0f / s_scale));
+    // The pack is authored at K× the 1k base (from the global sprite-quality config). Render at 1/K
+    // logical size so a 2k/4k pack shrinks back to 1k while the full-res WebP stays the texture (crisp).
+    return std::make_shared<Sprite>(
+        Sprite::fromRgbaFrames(std::move(frames), 1.0f / std::max(1.0f, g_contentSpriteScale)));
+}
+
+void CharacterActor::setContentSpriteScale(const std::string& q) {
+    g_contentSpriteScale = (q == "4k") ? 4.0f : (q == "2k") ? 2.0f : 1.0f;  // default/"1k"/"" -> 1k
 }
 std::unordered_map<std::string, std::shared_ptr<Sprite>> s_sprCache;
 std::unordered_map<std::string, std::shared_ptr<Action>> s_actCache;

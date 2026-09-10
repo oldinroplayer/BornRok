@@ -11037,6 +11037,7 @@ void GameScene::pushChatToast(const std::string& text, u32 color) {
 
 void GameScene::update(Application& app, double dt) {
     time_ += dt;
+    CharacterActor::setContentSpriteScale(app.spriteQuality());  // 1k base; 2k/4k pack -> shrink to 1k
     // Put the mouse into LOGICAL space (physical / uiScale) ONCE per frame, right at the top of the
     // frame's game logic. The whole HUD is drawn and hit-tested in logical space, and the world-pick
     // viewport (lastViewW_/H_) is stored logical too, so from here on EVERY consumer — update(),

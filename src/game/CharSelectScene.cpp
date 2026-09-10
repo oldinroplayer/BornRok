@@ -370,6 +370,7 @@ void CharSelectScene::selectSlot(Application& app, const net::CharInfo& c) {
 
 void CharSelectScene::update(Application& app, double dt) {
     time_ += dt;
+    CharacterActor::setContentSpriteScale(app.spriteQuality());  // 1k base; 2k/4k pack -> shrink to 1k
     InputState in = app.input();  // logical-space copy so UI hit-tests match the scaled canvas (#134)
     if (app.uiScale() > 1.001f) {
         in.mouseX = static_cast<int>(in.mouseX / app.uiScale());

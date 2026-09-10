@@ -94,6 +94,9 @@ public:
     // .spr (the falcon ships as ht_falcon.spr + h_falcon.act). Empty => act shares name.
     bool loadActor(const Vfs& vfs, const std::string& name, int classId = -1,
                    const std::string& actName = "");
+    // Set the .spr-less WebP pack's authoring scale from the global sprite-quality config ("1k"/"2k"/
+    // "4k"/"" -> 1/2/4/1). A pack loaded at 2k/4k renders back to the 1k base; default "" = 1k.
+    static void setContentSpriteScale(const std::string& spriteQuality);
     void destroy();
     // Free the process-wide shared frame-texture cache. MUST be called once during shutdown while
     // bgfx is still alive (before bgfx::shutdown), else the static maps destroy handles post-shutdown.
