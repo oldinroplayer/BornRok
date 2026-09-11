@@ -880,6 +880,16 @@ if(MSVC AND NOT CLIENT_XBOX)
         "MSIX Package/Identity Name (must match the Partner Center reservation for this product)")
     set(CLIENT_MSIX_DISPLAY_NAME "${_default_msix_display}" CACHE STRING
         "MSIX Package/Properties/DisplayName (must match the reserved product name)")
+    # Auto-heal a STALE cache: `set(... CACHE ...)` never overwrites an existing entry, so a build dir
+    # configured before the reservation keeps the retired `PechSoft.UaRO`/`BornRok` placeholder and the
+    # Store keeps rejecting it (S. 2026-09-11, same error after the default change). Force ONLY those exact
+    # retired placeholders to the current default; a real -D override (any other value) is left untouched.
+    if(CLIENT_MSIX_IDENTITY_NAME STREQUAL "PechSoft.UaRO")
+      set(CLIENT_MSIX_IDENTITY_NAME "${_default_msix_identity}" CACHE STRING "" FORCE)
+    endif()
+    if(CLIENT_MSIX_DISPLAY_NAME STREQUAL "BornRok")
+      set(CLIENT_MSIX_DISPLAY_NAME "${_default_msix_display}" CACHE STRING "" FORCE)
+    endif()
     set(_msix_identity_name "${CLIENT_MSIX_IDENTITY_NAME}")
     set(_msix_display_name "${CLIENT_MSIX_DISPLAY_NAME}")
     configure_file(${UARO_CLIENT_ROOT}/win/Package.appxmanifest.in
