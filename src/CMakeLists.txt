@@ -951,7 +951,10 @@ if(MSVC AND NOT CLIENT_XBOX)
       # makeappx re-compress them exhausts memory -> "0x8007000E Package creation failed" (S. 2026-07-27).
       # Storing them as-is is both correct (no gain from re-compressing) and avoids the OOM. The MSIX
       # ends up ~= the content size; that's expected for a bundled-data package.
-      COMMAND "${MAKEAPPX_EXE}" pack /o /nc /d "${_msix_layout}" /p "${_msix_out}")
+      # Run makeappx through a wrapper that WARNS (not errors) if packing OOMs on the multi-GB content,
+      # so a failed MSIX doesn't break the whole `cmake --build` (the exe still builds). (S. 2026-09-11.)
+      COMMAND ${CMAKE_COMMAND} -DMAKEAPPX=${MAKEAPPX_EXE} -DLAYOUT=${_msix_layout} -DOUT=${_msix_out}
+              -P ${UARO_CLIENT_ROOT}/win/msix_pack.cmake)
     if(MAKEAPPX_EXE)
       message(STATUS "CLIENT_WIN_MSIX: using makeappx: ${MAKEAPPX_EXE} (${_msix_arch})")
       # Part of the default build (ALL) so `cmake --build` produces BornRok.msix automatically -- works from
