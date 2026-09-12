@@ -4,6 +4,7 @@
 
 #include "app/Application.hpp"
 #include "core/Log.hpp"
+#include "formats/ImageIO.hpp"  // decodeImage: WebP shadow when the pack ships no .spr
 #include "formats/Spr.hpp"
 #include "render/Shader.hpp"
 #include "resource/Vfs.hpp"
@@ -25,23 +26,40 @@ constexpr float kDepthStretch = 1.9f;
 }  // namespace
 
 bool ShadowRenderer::load(Application& app) {
-    auto bytes = app.vfs().read("data/sprite/shadow.spr");
-    if (!bytes) {
-        log::warn("ShadowRenderer: data/sprite/shadow.spr missing; no character shadows");
+    u16 texW = 0, texH = 0;
+    std::vector<u8> rgba;
+    if (auto bytes = app.vfs().read("data/sprite/shadow.spr")) {  // classic .spr
+        auto spr = Sprite::parse(*bytes);
+        if (spr && !spr->indexedFrames().empty()) {
+            const SprFrame& fr = spr->indexedFrames()[0];
+            auto px = spr->indexedToRgba(0);  // index 0 -> transparent
+            if (fr.width && fr.height && px.size() >= static_cast<usize>(fr.width) * fr.height * 4) {
+                texW = fr.width;
+                texH = fr.height;
+                rgba = std::move(px);
+            }
+        }
+    }
+    if (rgba.empty()) {  // .spr-less WebP pack: data/sprite/shadow.png.d/0.webp is the shadow oval
+        auto wb = app.vfs().readQuiet("data/sprite/shadow.png.d/0.webp");
+        if (!wb) wb = app.vfs().readQuiet("data/sprite/shadow.png.d/0.png");
+        if (wb)
+            if (auto img = decodeImage(*wb); img && img->valid()) {
+                texW = static_cast<u16>(img->width);
+                texH = static_cast<u16>(img->height);
+                rgba = std::move(img->rgba);
+            }
+    }
+    if (rgba.empty() || texW == 0 || texH == 0) {
+        log::warn("ShadowRenderer: data/sprite/shadow.(spr|png.d) missing; no character shadows");
         return false;
     }
-    auto spr = Sprite::parse(*bytes);
-    if (!spr || spr->indexedFrames().empty()) {
-        log::warn("ShadowRenderer: shadow.spr has no indexed frame");
-        return false;
-    }
-    const SprFrame& fr = spr->indexedFrames()[0];
-    std::vector<u8> rgba = spr->indexedToRgba(0);  // index 0 -> transparent
-    if (fr.width == 0 || fr.height == 0 ||
-        rgba.size() < static_cast<usize>(fr.width) * fr.height * 4) {
-        log::warn("ShadowRenderer: shadow.spr frame empty");
-        return false;
-    }
+    // 2k/4k WebP packs author the oval K× bigger; size the ground quad at the 1k logical size (÷K)
+    // while the texture stays full-res (same rule as the char sprites). Classic .spr = 1k = K 1.
+    const std::string sq = app.spriteQuality();
+    const float kScale = (sq == "4k") ? 4.0f : (sq == "2k") ? 2.0f : 1.0f;
+    const float logicalW = static_cast<float>(texW) / kScale;
+    const float logicalH = static_cast<float>(texH) / kScale;
 
     // vs_sprite3d, NOT vs_model: vs_model emits normal/tangent varyings fs_sprite3d doesn't read, so
     // that program fails to LINK on DX11 and shadows silently vanished (S. log). vs_sprite3d does the
@@ -56,7 +74,7 @@ bool ShadowRenderer::load(Application& app) {
     bias_ = bgfx::createUniform("u_spriteBias", bgfx::UniformType::Vec4);  // vs_sprite3d depth nudge (kept 0)
     // Clamp + linear so the oval edge stays soft and never wraps.
     tex_ = bgfx::createTexture2D(
-        fr.width, fr.height, false, 1, bgfx::TextureFormat::RGBA8,
+        texW, texH, false, 1, bgfx::TextureFormat::RGBA8,
         BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
         bgfx::copy(rgba.data(), static_cast<u32>(rgba.size())));
     if (!bgfx::isValid(tex_)) {
@@ -65,8 +83,8 @@ bool ShadowRenderer::load(Application& app) {
     }
 
     // 0.75 = half * 1.5: the oval is sized 50% bigger than the raw sprite (S. request).
-    halfW_ = 0.75f * static_cast<float>(fr.width) * kWorldPerPx;
-    halfD_ = 0.75f * static_cast<float>(fr.height) * kWorldPerPx * kDepthStretch;
+    halfW_ = 0.75f * logicalW * kWorldPerPx;
+    halfD_ = 0.75f * logicalH * kWorldPerPx * kDepthStretch;
     layout_.begin()
         .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
         .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
@@ -74,7 +92,7 @@ bool ShadowRenderer::load(Application& app) {
         .end();
 
     ready_ = true;
-    log::info("ShadowRenderer: shadow.spr {}x{} loaded", fr.width, fr.height);
+    log::info("ShadowRenderer: shadow {}x{} loaded", texW, texH);
     return true;
 }
 
