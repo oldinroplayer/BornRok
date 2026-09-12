@@ -8050,20 +8050,40 @@ void GameScene::loadDmgDigits(Application& app) {
     dmgDigitsTried_ = true;
     // data/sprite/이팩트/ : 숫자.spr (digits 0-9) + msg.spr (0 Miss / 2 Critical / 3 burst / 5 Lucky).
     static const std::string kEff = "data/sprite/\xc0\xcc\xc6\xd1\xc6\xae/";
+    // The .spr-less WebP content pack authors at K× the 1k base (2k->2, 4k->4); shrink the digit/msg
+    // quad to the 1k logical size while uploading the full-res texture (same rule as the char sprites).
+    const std::string sq = app.spriteQuality();
+    const float kScale = (sq == "4k") ? 4.0f : (sq == "2k") ? 2.0f : 1.0f;
     auto loadFrame = [&](const std::string& file, int frame, ui::UiImage& out) {
-        auto bytes = app.vfs().read(kEff + file);
-        if (!bytes) return;
-        auto spr = Sprite::parse(*bytes);
-        if (!spr) return;
-        const auto& frames = spr->indexedFrames();
-        if (frame < 0 || static_cast<usize>(frame) >= frames.size()) return;
-        const SprFrame& fr = frames[static_cast<usize>(frame)];
-        if (fr.width == 0 || fr.height == 0) return;
-        std::vector<u8> rgba = spr->indexedToRgba(static_cast<usize>(frame));
-        if (rgba.empty()) return;
-        out.w = static_cast<int>(fr.width);
-        out.h = static_cast<int>(fr.height);
-        out.tex.create(fr.width, fr.height, rgba.data(), /*smooth=*/true);
+        if (auto bytes = app.vfs().read(kEff + file)) {  // classic <name>.spr
+            if (auto spr = Sprite::parse(*bytes)) {
+                const auto& frames = spr->indexedFrames();
+                if (frame >= 0 && static_cast<usize>(frame) < frames.size()) {
+                    const SprFrame& fr = frames[static_cast<usize>(frame)];
+                    std::vector<u8> rgba = spr->indexedToRgba(static_cast<usize>(frame));
+                    if (fr.width && fr.height && !rgba.empty()) {
+                        out.w = static_cast<int>(fr.width);
+                        out.h = static_cast<int>(fr.height);
+                        out.tex.create(fr.width, fr.height, rgba.data(), /*smooth=*/true);
+                        return;
+                    }
+                }
+            }
+        }
+        // No .spr (pack converted to WebP): <name>.png.d/<frame>.webp IS this frame's image (S. 2026-09-12:
+        // "со спрайтами 2к нету цифр урона и миссов"). Load it directly + downscale to the 1k logical size.
+        std::string base = file;
+        if (auto d = base.rfind(".spr"); d != std::string::npos) base.erase(d);
+        const std::string dir = kEff + base + ".png.d/" + std::to_string(frame);
+        auto wb = app.vfs().readQuiet(dir + ".webp");
+        if (!wb) wb = app.vfs().readQuiet(dir + ".png");
+        if (!wb) return;
+        auto img = decodeImage(*wb);
+        if (!img || !img->valid()) return;
+        out.w = std::max(1, static_cast<int>(img->width / kScale));
+        out.h = std::max(1, static_cast<int>(img->height / kScale));
+        out.tex.create(static_cast<u16>(img->width), static_cast<u16>(img->height), img->rgba.data(),
+                       /*smooth=*/true);
     };
     for (int i = 0; i < 10; ++i) loadFrame("\xbc\xfd\xc0\xda.spr", i, dmgDigit_[i]);  // 숫자.spr
     loadFrame("msg.spr", 0, dmgMiss_);     // "Miss"
